@@ -1,0 +1,18 @@
+[
+  {
+    "url": "https://github.com/frappe/erpnext",
+    "branch": "v16.32.3"
+  },
+  {
+    "url": "https://github.com/frappe/healthcare",
+    "branch": "v16.5.2"
+  },
+  {
+    "url": "https://github.com/frappe/print_designer",
+    "branch": "v1.6.7"
+  },
+  {
+    "url": "https://github.com/frappe/payments",
+    "branch": "version-16"
+  }
+]

@@ -1,0 +1,158 @@
+services:
+
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MYSQL_ROOT_PASSWORD: "123"
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - sinapse_db-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD
+        - healthcheck.sh
+        - --connect
+        - --innodb_initialized
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis-cache:
+    image: redis:8.6-alpine
+    restart: unless-stopped
+
+  redis-queue:
+    image: redis:8.6-alpine
+    restart: unless-stopped
+    volumes:
+      - sinapse_redis-queue-data:/data
+
+  configurator:
+    image: localhost/sinapse:16
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host db;
+        bench set-config -gp db_port 3306;
+        bench set-config -g redis_cache "redis://redis-cache:6379";
+        bench set-config -g redis_queue "redis://redis-queue:6379";
+        bench set-config -g redis_socketio "redis://redis-queue:6379";
+        bench set-config -gp socketio_port 9000;
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+  backend:
+    image: localhost/sinapse:16
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+  websocket:
+    image: localhost/sinapse:16
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+  scheduler:
+    image: localhost/sinapse:16
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command:
+      - bench
+      - schedule
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+  queue-short:
+    image: localhost/sinapse:16
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command:
+      - bench
+      - worker
+      - --queue
+      - short,default
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+  queue-long:
+    image: localhost/sinapse:16
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command:
+      - bench
+      - worker
+      - --queue
+      - long,default,short
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+  frontend:
+    image: localhost/sinapse:16
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+      websocket:
+        condition: service_started
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      CLIENT_MAX_BODY_SIZE: "50m"
+      FRAPPE_SITE_NAME_HEADER: sinapse.localhost
+      PROXY_READ_TIMEOUT: "120"
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+    ports:
+      - "8080:8080"
+    volumes:
+      - sinapse_sites:/home/frappe/frappe-bench/sites
+
+volumes:
+  sinapse_sites:
+    external: true
+
+  sinapse_db-data:
+    external: true
+
+  sinapse_redis-queue-data:

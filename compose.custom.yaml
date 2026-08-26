@@ -1,0 +1,178 @@
+services:
+  backend:
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    environment:
+      GUNICORN_THREADS: '4'
+      GUNICORN_TIMEOUT: '120'
+      GUNICORN_WORKERS: '2'
+    image: sinapse:16
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  configurator:
+    command:
+    - 'ls -1 apps > sites/apps.txt; bench set-config -g db_host $DB_HOST; bench set-config
+      -gp db_port $DB_PORT; bench set-config -g redis_cache "redis://$REDIS_CACHE";
+      bench set-config -g redis_queue "redis://$REDIS_QUEUE"; bench set-config -g
+      redis_socketio "redis://$REDIS_QUEUE"; bench set-config -gp socketio_port $SOCKETIO_PORT;
+      bench set-config -g chromium_path /usr/bin/chromium-headless-shell;
+
+      '
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    entrypoint:
+    - bash
+    - -c
+    environment:
+      DB_HOST: db
+      DB_PORT: '3306'
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: 9000
+    image: sinapse:16
+    platform: linux/amd64
+    pull_policy: missing
+    restart: on-failure
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  db:
+    command:
+    - --character-set-server=utf8mb4
+    - --collation-server=utf8mb4_unicode_ci
+    - --skip-character-set-client-handshake
+    environment:
+      MARIADB_AUTO_UPGRADE: '1'
+      MYSQL_ROOT_PASSWORD: '123'
+    healthcheck:
+      interval: 5s
+      retries: '5'
+      start_period: 5s
+      test:
+      - CMD
+      - healthcheck.sh
+      - --connect
+      - --innodb_initialized
+      timeout: 5s
+    image: mariadb:11.8
+    restart: unless-stopped
+    volumes:
+    - db-data:/var/lib/mysql
+  frontend:
+    command:
+    - nginx-entrypoint.sh
+    depends_on:
+      backend:
+        condition: service_started
+      websocket:
+        condition: service_started
+    environment:
+      BACKEND: backend:8000
+      CLIENT_MAX_BODY_SIZE: 50m
+      FRAPPE_SITE_NAME_HEADER: sinapse.localhost
+      PROXY_READ_TIMEOUT: '120'
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: 'off'
+    image: sinapse:16
+    platform: linux/amd64
+    ports:
+    - 8080:8080
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  queue-long:
+    command:
+    - bench
+    - worker
+    - --queue
+    - long,default,short
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    image: sinapse:16
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  queue-short:
+    command:
+    - bench
+    - worker
+    - --queue
+    - short,default
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    image: sinapse:16
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  redis-cache:
+    image: redis:8.6-alpine
+    restart: unless-stopped
+  redis-queue:
+    image: redis:8.6-alpine
+    restart: unless-stopped
+    volumes:
+    - redis-queue-data:/data
+  scheduler:
+    command:
+    - bench
+    - schedule
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    image: sinapse:16
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  websocket:
+    command:
+    - node
+    - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    image: sinapse:16
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    volumes:
+    - sites:/home/frappe/frappe-bench/sites
+volumes:
+  db-data: null
+  redis-queue-data: null
+  sites: null
+x-backend-defaults:
+  depends_on:
+    configurator:
+      condition: service_completed_successfully
+  image: sinapse:16
+  pull_policy: missing
+  restart: unless-stopped
+  volumes:
+  - sites:/home/frappe/frappe-bench/sites
+x-customizable-image:
+  image: sinapse:16
+  pull_policy: missing
+  restart: unless-stopped
+x-depends-on-configurator:
+  depends_on:
+    configurator:
+      condition: service_completed_successfully

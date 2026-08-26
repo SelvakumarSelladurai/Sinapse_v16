@@ -9,13 +9,14 @@ ARG CACHE_BUST=""
 
 USER frappe
 
-RUN --mount=type=secret,id=apps_json,target=/opt/frappe/apps.json,uid=1000,gid=1000 \
-  : "${CACHE_BUST}" && \
+COPY --chown=frappe:frappe apps.json /opt/frappe/apps.json
+
+RUN : "${CACHE_BUST}" && \
   export APP_INSTALL_ARGS="" && \
   if [ -f /opt/frappe/apps.json ] && [ -s /opt/frappe/apps.json ]; then \
     export APP_INSTALL_ARGS="--apps_path=/opt/frappe/apps.json"; \
   fi && \
-  bench init ${APP_INSTALL_ARGS}\
+  bench init ${APP_INSTALL_ARGS} \
     --frappe-branch=${FRAPPE_BRANCH} \
     --frappe-path=${FRAPPE_PATH} \
     --no-procfile \
@@ -35,7 +36,6 @@ COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe
 
 WORKDIR /home/frappe/frappe-bench
 
-# Move assets to image-layer storage
 RUN cp -r /home/frappe/frappe-bench/sites/assets /home/frappe/frappe-bench/assets && \
   rm -rf /home/frappe/frappe-bench/sites/assets
 
@@ -45,7 +45,7 @@ VOLUME [ \
 ]
 
 USER root
-# This entrypoint script link build assets of the image to the mounted sites volume at container initialization
+
 COPY resources/core/main-entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 755 /usr/local/bin/entrypoint.sh
 
@@ -53,6 +53,7 @@ COPY resources/core/start.sh /usr/local/bin/start.sh
 RUN chmod 755 /usr/local/bin/start.sh
 
 USER frappe
+
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 CMD ["start.sh"]
