@@ -3,7 +3,7 @@
     "mermaid": "11.16.1",
     "vitepress": "2.0.0-alpha.19",
     "vitepress-mermaid-viewer": "0.5.0",
-    "vitepress-sidebar": "1.38.0"
+    "vitepress-sidebar": "1.40.0"
   },
   "scripts": {
     "docs:dev": "vitepress dev",
